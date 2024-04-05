@@ -35,7 +35,7 @@ def interrupt_callback(pipeline, step, timestep, callback_kwargs):
     return callback_kwargs
 
 @invocation('stable_cascade', version="1.0.0")
-class StableCascadeInvocation(BaseInvocation, WithBoard, WithMetadata):
+class StableCascadeInvocation(BaseInvocation, WithBoard):
     '''Runs Stable Cascade Inference'''
 
     Prompt: str = InputField(default="", description="Prompt", ui_component=UIComponent.Textarea)
