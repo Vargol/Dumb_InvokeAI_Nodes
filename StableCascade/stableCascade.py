@@ -1,5 +1,5 @@
 from invokeai.app.invocations.baseinvocation import BaseInvocation, invocation, InvocationContext
-from invokeai.app.invocations.fields import UIComponent, FieldDescriptions, InputField, WithBoard
+from invokeai.app.invocations.fields import UIComponent, FieldDescriptions, InputField, WithBoard, WithMetadata
 from invokeai.app.util.misc import SEED_MAX
 from invokeai.app.invocations.primitives import ImageOutput
 from invokeai.backend.util.devices import torch_dtype, choose_torch_device
@@ -12,9 +12,30 @@ from diffusers import (
     StableCascadeUNet,
 )
 
+def interrupt_callback(pipeline, step, timestep, callback_kwargs):
+    if pipeline.invokeai_context.util.is_canceled():
+        pipeline._interrupt = True
+
+    context_data=pipeline.invokeai_context._data
+    events = pipeline.invokeai_context._services.events    
+
+    events.emit_generator_progress(
+        queue_id=context_data.queue_item.queue_id,
+        queue_item_id=context_data.queue_item.item_id,
+        queue_batch_id=context_data.queue_item.batch_id,
+        graph_execution_state_id=context_data.queue_item.session_id,
+        node_id=context_data.invocation.id,
+        source_node_id=context_data.source_invocation_id,
+        progress_image=None,
+        step=step + pipeline.invokeai_steps["stage_c_steps"],
+        order=1,
+        total_steps=pipeline.invokeai_steps["total_steps"],
+    )
+
+    return callback_kwargs
 
 @invocation('stable_cascade', version="1.0.0")
-class StableCascadeInvocation(BaseInvocation, WithBoard):
+class StableCascadeInvocation(BaseInvocation, WithBoard, WithMetadata):
     '''Runs Stable Cascade Inference'''
 
     Prompt: str = InputField(default="", description="Prompt", ui_component=UIComponent.Textarea)
@@ -42,8 +63,11 @@ class StableCascadeInvocation(BaseInvocation, WithBoard):
         description=FieldDescriptions.seed,
     )
 
-    
+
+
+
     def invoke(self, context: InvocationContext) -> ImageOutput:
+
 
         lite_c = self.StageC == 'Lite Model'
         lite_b = self.StageB == 'Lite Model'
@@ -64,6 +88,10 @@ class StableCascadeInvocation(BaseInvocation, WithBoard):
         stage_a_ft_hq = None
         decoder_unet = None
 
+        if context.util.is_canceled():
+            return None
+
+
         if lite_c:
             prior_unet = StableCascadeUNet.from_pretrained("stabilityai/stable-cascade-prior", 
                                                             subfolder="prior_lite", 
@@ -78,6 +106,8 @@ class StableCascadeInvocation(BaseInvocation, WithBoard):
                                                             variant="bf16",
                                                             **prior_kwargs).to(device)
         
+        prior.invokeai_context = context
+        prior.invokeai_steps = {"stage_c_steps": 0, "total_steps": self.StageCSteps + self.StageBSteps}
 
 
         prior_output = prior(
@@ -88,12 +118,15 @@ class StableCascadeInvocation(BaseInvocation, WithBoard):
             guidance_scale=self.StageCScale,
             num_images_per_prompt=1,
             num_inference_steps=self.StageCSteps,
-            generator=generator
+            generator=generator,
+            callback_on_step_end=interrupt_callback
         )
 
         del prior
         del prior_unet
 
+        if context.util.is_canceled():
+            return None
 
         if lite_b:
             decoder_unet = StableCascadeUNet.from_pretrained("stabilityai/stable-cascade", 
@@ -114,7 +147,10 @@ class StableCascadeInvocation(BaseInvocation, WithBoard):
         if ollin_a:
             print("using ollin vqgan")
             decoder.vqgan = stage_a_ft_hq   
+       
 
+        decoder.invokeai_context = context
+        decoder.invokeai_steps = {"stage_c_steps": self.StageCSteps, "total_steps": self.StageCSteps + self.StageBSteps}
 
         decoder_output = decoder(
             image_embeddings=prior_output.image_embeddings,
@@ -123,7 +159,8 @@ class StableCascadeInvocation(BaseInvocation, WithBoard):
             guidance_scale=self.StageBScale,
             output_type="pil",
             num_inference_steps=self.StageBSteps,
-            generator=generator
+            generator=generator,
+            callback_on_step_end=interrupt_callback
         ).images[0]
 
         del stage_a_ft_hq
