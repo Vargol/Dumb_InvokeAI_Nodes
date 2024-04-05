@@ -141,6 +141,7 @@ class StableCascadeInvocation(BaseInvocation, WithBoard):
 
 
         decoder = StableCascadeDecoderPipeline.from_pretrained("stabilityai/stable-cascade",
+                                                                text_encoder=None,
                                                                 variant="bf16",
                                                                 torch_dtype=dtype, 
                                                                 **decoder_kwargs).to(device)
@@ -154,8 +155,10 @@ class StableCascadeInvocation(BaseInvocation, WithBoard):
 
         decoder_output = decoder(
             image_embeddings=prior_output.image_embeddings,
-            prompt=self.Prompt,
-            negative_prompt=self.NegativePrompt,
+            prompt_embeds=prior_output.prompt_embeds,
+            prompt_embeds_pooled=prior_output.prompt_embeds_pooled,
+            negative_prompt_embeds=prior_output.negative_prompt_embeds,
+            negative_prompt_embeds_pooled=prior_output.negative_prompt_embeds_pooled,
             guidance_scale=self.StageBScale,
             output_type="pil",
             num_inference_steps=self.StageBSteps,
