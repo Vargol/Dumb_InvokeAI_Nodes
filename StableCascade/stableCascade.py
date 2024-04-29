@@ -74,7 +74,7 @@ class StableCascadeInvocation(BaseInvocation, WithBoard):
         ollin_a = self.StageA == 'Ollin Model'
 
         device = choose_torch_device()
-        dtype = torch_dtype()
+        dtype = torch_dtype(device)
 
         print(f"DEVICE: {device}")
         print(f"DTYPE: {dtype}")
