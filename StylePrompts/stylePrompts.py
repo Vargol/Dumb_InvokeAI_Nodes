@@ -2,6 +2,7 @@ from invokeai.app.invocations.baseinvocation import BaseInvocation, invocation, 
 from invokeai.app.invocations.primitives import InputField
 from invokeai.app.invocations.strings import String2Output
 from invokeai.app.invocations.fields import UIComponent, OutputField
+from invokeai.backend.util.devices import choose_precision, choose_torch_device
 
 from typing import Literal
 
